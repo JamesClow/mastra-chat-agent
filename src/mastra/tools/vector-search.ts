@@ -25,6 +25,8 @@ export const vectorSearchTool = createTool({
       metadata: z.record(z.unknown()).optional(),
     })),
     resultCount: z.number(),
+    hasResults: z.boolean().describe('Whether any results were found'),
+    isNoMatch: z.boolean().describe('True when no results found (knowledge gap)'),
   }),
   execute: async (input) => {
     const { query, namespace = 'public', topK = 5 } = input;
@@ -58,6 +60,10 @@ export const vectorSearchTool = createTool({
         })
         .join('\n\n---\n\n');
 
+      const resultCount = results.result.hits.length;
+      const hasResults = resultCount > 0;
+      const isNoMatch = !hasResults;
+
       return {
         context,
         results: results.result.hits.map((hit) => {
@@ -69,7 +75,9 @@ export const vectorSearchTool = createTool({
             metadata: fields,
           };
         }),
-        resultCount: results.result.hits.length,
+        resultCount,
+        hasResults,
+        isNoMatch,
       };
     } catch (error) {
       console.error('Vector search error:', error);

@@ -2,36 +2,55 @@ import { Agent } from '@mastra/core/agent';
 import { LibSQLStore } from '@mastra/libsql';
 import { Memory } from '@mastra/memory';
 import { scorers } from '../scorers';
-import { vectorSearchTool, weatherTool } from '../tools';
+import { escalateTool, vectorSearchTool } from '../tools';
 
 // Initialize memory with LibSQLStore for persistence
 const memory = new Memory({
   storage: new LibSQLStore({
-    id: 'weather-agent-memory-storage',
+    id: 'parent-support-agent-memory-storage',
     url: 'file:../mastra.db', // Or your database URL
   }),
 });
 
-export const weatherAgent = new Agent({
-  id: 'weather-agent',
-  name: 'Weather Agent',
+export const parentSupportAgent = new Agent({
+  id: 'parent-support-agent',
+  name: 'Parent Support Agent',
   instructions: `
-      You are a helpful weather assistant that provides accurate weather information and can help planning activities based on the weather.
+      You are a warm, empathetic assistant for Sunny Days Childcare Center. You help parents with questions about policies, schedules, health guidelines, enrollment, and other center information.
 
-      Your primary function is to help users get weather details for specific locations. When responding:
-      - Always ask for a location if none is provided
-      - If the location name isn't in English, please translate it
-      - If giving a location with multiple parts (e.g. "New York, NY"), use the most relevant part (e.g. "New York")
-      - Include relevant details like humidity, wind conditions, and precipitation
-      - Keep responses concise but informative
-      - If the user asks for activities and provides the weather forecast, suggest activities based on the weather forecast.
-      - If the user asks for activities, respond in the format they request.
+      TONE & STYLE:
+      - Warm and reassuring (parents are anxious and caring)
+      - Professional but approachable
+      - Center-specific and trustworthy
+      - Clear and concise
 
-      Use the weatherTool to fetch current weather data.
-      Use the vectorSearchTool to search the knowledge base when users ask questions about policies, schedules, FAQs, or other stored information.
-`,
+      BEHAVIOR:
+      1. ALWAYS search the knowledge base first using vectorSearchTool before answering questions
+      2. If vectorSearchTool returns isNoMatch: true or hasResults: false:
+         - DO NOT generate an answer
+         - Immediately use escalateTool with reason: 'no_results'
+         - Never guess or make up information
+      3. If you find relevant information:
+         - Always cite sources from the knowledge base
+         - Reference specific policies or documents when possible
+         - Acknowledge when information is center-specific
+         - Indicate when answer is based on general knowledge vs. center policy
+      4. For medical emergencies:
+         - Immediately use escalateTool with reason: 'emergency'
+         - Direct user to call 911
+      5. If user explicitly requests human assistance:
+         - Use escalateTool with reason: 'user_request'
+      6. Express uncertainty explicitly when confidence is low
+      7. Never guess or make up information
+
+      RESPONSE FORMAT:
+      - Keep responses concise but helpful
+      - Include source citations when referencing policies
+      - Offer to escalate if user needs more help
+      - Use warm, empathetic language
+  `,
   model: process.env.MODEL || 'openai/gpt-4o',
-  tools: { weatherTool, vectorSearchTool },
+  tools: { vectorSearchTool, escalateTool },
   memory,
   scorers: {
     toolCallAppropriateness: {

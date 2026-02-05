@@ -3,14 +3,15 @@ import { Mastra } from '@mastra/core/mastra';
 import { LibSQLStore } from '@mastra/libsql';
 import { PinoLogger } from '@mastra/loggers';
 import { CloudExporter, DefaultExporter, Observability, SensitiveDataFilter } from '@mastra/observability';
-import { weatherAgent } from './agents';
+import { parentSupportAgent } from './agents';
+import { handleSuggestionWorkflow } from './routes/suggestions';
 import { completenessScorer, toolCallAppropriatenessScorer, translationScorer } from './scorers';
-import { weatherWorkflow } from './workflows';
+import { suggestionWorkflow, weatherWorkflow } from './workflows';
 
 export const mastra = new Mastra({
-  workflows: { weatherWorkflow },
-  agents: { weatherAgent },
-  storage: new LibSQLStore({ id: 'weather-agent-storage', url: ':memory:' }),
+  workflows: { weatherWorkflow, suggestionWorkflow },
+  agents: { parentSupportAgent },
+  storage: new LibSQLStore({ id: 'parent-support-agent-storage', url: ':memory:' }),
   scorers: {
     toolCallAppropriatenessScorer,
     completenessScorer,
@@ -38,8 +39,16 @@ export const mastra = new Mastra({
     apiRoutes: [
       chatRoute({
         path: '/chat',
-        agent: 'weatherAgent',
+        agent: 'parentSupportAgent',
       }),
+      // Custom route for suggestion workflow
+      {
+        path: '/workflows/suggestion-workflow',
+        method: 'POST',
+        handler: async (req: { body: unknown }) => {
+          return await handleSuggestionWorkflow(req.body);
+        },
+      },
     ],
   },
 });
