@@ -185,4 +185,6 @@ const weatherWorkflow = createWorkflow({
 
 weatherWorkflow.commit();
 
+export { suggestionWorkflow } from './suggestion-workflow';
 export { weatherWorkflow };
+

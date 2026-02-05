@@ -42,18 +42,20 @@ const generateSuggestions = createStep({
 
     const insights: string[] = [];
 
-    // Time-based insights
+    // Time-based insights (parent-focused)
     if (inputData.timeOfDay === 'morning') {
-      insights.push('User is likely starting their day - suggest proactive questions');
+      insights.push('Parent is likely starting their day - suggest questions about today\'s schedule, drop-off, attendance');
+    } else if (inputData.timeOfDay === 'afternoon') {
+      insights.push('Parent may be asking about pick-up, after-school activities, or homework');
     } else if (inputData.timeOfDay === 'evening' || inputData.timeOfDay === 'night') {
-      insights.push('User is likely planning for tomorrow or wrapping up their day');
+      insights.push('Parent is likely planning for tomorrow or asking about upcoming events');
     }
 
     // Day-based insights
     if (inputData.isWeekend) {
-      insights.push('Weekend context - may be less urgent, more planning-focused');
+      insights.push('Weekend context - parent may be planning for next week, asking about schedules or events');
     } else {
-      insights.push('Weekday context - may need quick answers for immediate needs');
+      insights.push('Weekday context - parent may need quick answers about today\'s schedule, attendance, or immediate needs');
     }
 
     // Seasonal insights
@@ -103,11 +105,17 @@ ${inputData.geolocation?.city ? `- Location: ${inputData.geolocation.city}` : ''
       prompt += `\nRecent Chat History (for context):\n${recentMessages.map(m => `${m.role}: ${m.text.substring(0, 100)}`).join('\n')}\n\n`;
     }
 
-    prompt += `\nRequirements:
+    prompt += `\nIMPORTANT CONTEXT:
+- The user is a PARENT of a K-12 student
+- They are asking questions about their child/student or school policies
+- Focus suggestions on: student information, school policies, schedules, events, academic info
+
+Requirements:
 - Generate exactly 4-6 suggestions
-- Each suggestion should be a complete, actionable question or statement
+- Each suggestion should be a complete, actionable question a parent would ask
+- Focus on: student info, school policies, schedules, events, academic topics
 - Make them specific to the context (time, events, user patterns)
-- Keep each suggestion concise (one sentence)
+- Keep each suggestion concise (one sentence, parent-friendly language)
 - Return ONLY the suggestions, one per line, no numbering or bullets
 - Format: Just the text of each suggestion, separated by newlines`;
 
@@ -131,10 +139,10 @@ ${inputData.geolocation?.city ? `- Location: ${inputData.geolocation.city}` : ''
     // If we don't have enough suggestions, add some fallbacks
     if (suggestions.length < 4) {
       const fallbacks = [
-        "What can I help you with today?",
-        "Tell me about upcoming events",
-        "What are the center's policies?",
-        "How can I get more information?",
+        "What's on the school calendar this week?",
+        "What are the school's attendance policies?",
+        "How can I check my child's academic progress?",
+        "Tell me about upcoming school events",
       ];
       suggestions.push(...fallbacks.slice(0, 4 - suggestions.length));
     }
