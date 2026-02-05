@@ -1,5 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+export { vectorSearchTool } from './vector-search';
 
 interface GeocodingResponse {
   results: {

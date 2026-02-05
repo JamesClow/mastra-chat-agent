@@ -1,10 +1,11 @@
-import { Observability, DefaultExporter, CloudExporter, SensitiveDataFilter } from '@mastra/observability';
+import { chatRoute } from '@mastra/ai-sdk';
 import { Mastra } from '@mastra/core/mastra';
-import { PinoLogger } from '@mastra/loggers';
 import { LibSQLStore } from '@mastra/libsql';
-import { weatherWorkflow } from './workflows';
+import { PinoLogger } from '@mastra/loggers';
+import { CloudExporter, DefaultExporter, Observability, SensitiveDataFilter } from '@mastra/observability';
 import { weatherAgent } from './agents';
-import { toolCallAppropriatenessScorer, completenessScorer, translationScorer } from './scorers';
+import { completenessScorer, toolCallAppropriatenessScorer, translationScorer } from './scorers';
+import { weatherWorkflow } from './workflows';
 
 export const mastra = new Mastra({
   workflows: { weatherWorkflow },
@@ -33,4 +34,12 @@ export const mastra = new Mastra({
       },
     },
   }),
+  server: {
+    apiRoutes: [
+      chatRoute({
+        path: '/chat',
+        agent: 'weatherAgent',
+      }),
+    ],
+  },
 });

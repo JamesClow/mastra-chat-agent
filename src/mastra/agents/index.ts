@@ -1,8 +1,8 @@
 import { Agent } from '@mastra/core/agent';
-import { weatherTool } from '../tools';
-import { scorers } from '../scorers';
 import { LibSQLStore } from '@mastra/libsql';
 import { Memory } from '@mastra/memory';
+import { scorers } from '../scorers';
+import { vectorSearchTool, weatherTool } from '../tools';
 
 // Initialize memory with LibSQLStore for persistence
 const memory = new Memory({
@@ -28,9 +28,10 @@ export const weatherAgent = new Agent({
       - If the user asks for activities, respond in the format they request.
 
       Use the weatherTool to fetch current weather data.
+      Use the vectorSearchTool to search the knowledge base when users ask questions about policies, schedules, FAQs, or other stored information.
 `,
   model: process.env.MODEL || 'openai/gpt-4o',
-  tools: { weatherTool },
+  tools: { weatherTool, vectorSearchTool },
   memory,
   scorers: {
     toolCallAppropriateness: {
