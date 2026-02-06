@@ -13,7 +13,7 @@ export const vectorSearchTool = createTool({
   description: 'Search the knowledge base for relevant information using semantic search. Use this when you need to find information from stored documents, policies, FAQs, or other knowledge base content.',
   inputSchema: z.object({
     query: z.string().describe('The search query to find relevant information'),
-    namespace: z.string().optional().describe('Namespace to search in (e.g., "public", "restricted", "user_123"). Defaults to "public"'),
+    namespace: z.string().optional().describe('Namespace to search in (e.g., "__default__", "public", "restricted", "user_123"). Defaults to "__default__"'),
     topK: z.number().optional().default(5).describe('Number of results to return (default: 5)'),
   }),
   outputSchema: z.object({
@@ -29,7 +29,7 @@ export const vectorSearchTool = createTool({
     isNoMatch: z.boolean().describe('True when no results found (knowledge gap)'),
   }),
   execute: async (input) => {
-    const { query, namespace = 'public', topK = 5 } = input;
+    const { query, namespace = '__default__', topK = 5 } = input;
     
     // Validate environment variables before attempting search
     if (!process.env.PINECONE_API_KEY) {
@@ -81,8 +81,9 @@ export const vectorSearchTool = createTool({
           rerank: {
             model: 'bge-reranker-v2-m3',
             topN: topK,
-            // Try both 'content' and 'excerpt' as rank fields since data might use either
-            rankFields: ['content', 'excerpt'],
+            // Use 'text' field (matches field_map from index creation)
+            // Note: bge-reranker-v2-m3 only supports one rank field
+            rankFields: ['text'],
           },
         });
         
@@ -110,12 +111,14 @@ export const vectorSearchTool = createTool({
           const fields = (hit.fields || {}) as Record<string, any>;
           const metadata = (hit.metadata || {}) as Record<string, any>;
           
-          // Extract content - try multiple possible field names
+          // Extract content - records use 'text' field (matches field_map from index creation)
           const content = String(
+            fields.text ||
             fields.content || 
             fields.excerpt ||
             metadata.excerpt || 
             metadata.content || 
+            metadata.text ||
             ''
           );
           const score = hit._score;
@@ -152,10 +155,12 @@ export const vectorSearchTool = createTool({
             id: hit._id,
             score: hit._score,
             content: String(
+              fields.text ||
               fields.content || 
               fields.excerpt ||
               metadata.excerpt || 
               metadata.content || 
+              metadata.text ||
               ''
             ),
             metadata: { ...fields, ...metadata },

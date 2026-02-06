@@ -89,7 +89,7 @@ export function createChatRouteWithAutoSearch(agentId: string) {
 
           if (messageText.trim().length > 0) {
             try {
-              const namespace = (body?.data?.namespace as string) || 'public';
+              const namespace = (body?.data?.namespace as string) || '__default__';
 
               console.log(`[ChatRoute] Performing automatic vector search for: "${messageText.substring(0, 80)}..."`);
               const searchResult = await performAutoVectorSearch(messageText, namespace, 5);

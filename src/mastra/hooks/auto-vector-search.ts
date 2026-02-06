@@ -8,7 +8,7 @@ import { getPineconeIndex } from '../../pinecone/client';
  */
 export async function performAutoVectorSearch(
   userMessage: string,
-  namespace: string = 'public',
+  namespace: string = '__default__',
   topK: number = 5
 ): Promise<{
   context: string;
@@ -66,24 +66,28 @@ export async function performAutoVectorSearch(
       rerank: {
         model: 'bge-reranker-v2-m3',
         topN: topK,
-        // Try both 'content' and 'excerpt' as rank fields since data might use either
-        rankFields: ['content', 'excerpt'],
+        // Use 'text' field (matches field_map from index creation)
+        // Note: bge-reranker-v2-m3 only supports one rank field
+        rankFields: ['text'],
       },
     });
 
     // Format results for agent context
-    // Handle both Records API format (fields) and cases where data is in metadata
+    // Records API returns data in 'fields', not 'metadata'
     const context = results.result.hits
       .map((hit) => {
         const fields = (hit.fields || {}) as Record<string, any>;
-        const metadata = (hit.metadata || {}) as Record<string, any>;
+        // Records API may have metadata as a property, but type doesn't include it
+        const metadata = ((hit as any).metadata || {}) as Record<string, any>;
         
-        // Extract content - try multiple possible field names
+        // Extract content - records use 'text' field (matches field_map from index creation)
         const content = String(
+          fields.text ||
           fields.content || 
           fields.excerpt ||
           metadata.excerpt || 
           metadata.content || 
+          metadata.text ||
           ''
         );
         const score = hit._score;
@@ -104,15 +108,18 @@ export async function performAutoVectorSearch(
       context,
       results: results.result.hits.map((hit) => {
         const fields = (hit.fields || {}) as Record<string, any>;
-        const metadata = (hit.metadata || {}) as Record<string, any>;
+        // Records API may have metadata as a property, but type doesn't include it
+        const metadata = ((hit as any).metadata || {}) as Record<string, any>;
         return {
           id: hit._id,
           score: hit._score,
           content: String(
+            fields.text ||
             fields.content || 
             fields.excerpt ||
             metadata.excerpt || 
             metadata.content || 
+            metadata.text ||
             ''
           ),
           metadata: { ...fields, ...metadata },

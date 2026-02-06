@@ -14,7 +14,7 @@ export const keywordSearchTool = createTool({
   description: 'Search the knowledge base using keyword/lexical search. Use this when you need to find exact keyword matches, specific terms, or when semantic search doesn\'t return the desired results. This is particularly useful for finding specific policy names, document titles, or exact phrases.',
   inputSchema: z.object({
     query: z.string().describe('The search query with keywords to find relevant information'),
-    namespace: z.string().optional().describe('Namespace to search in (e.g., "public", "restricted", "user_123"). Defaults to "public"'),
+    namespace: z.string().optional().describe('Namespace to search in (e.g., "__default__", "public", "restricted", "user_123"). Defaults to "__default__"'),
     topK: z.number().optional().default(5).describe('Number of results to return (default: 5)'),
     requiredTerms: z.array(z.string()).optional().describe('Optional list of terms that must be present in the results'),
     useReranking: z.boolean().optional().default(true).describe('Whether to use reranking for better results (default: true)'),
@@ -32,7 +32,7 @@ export const keywordSearchTool = createTool({
     isNoMatch: z.boolean().describe('True when no results found (knowledge gap)'),
   }),
   execute: async (input) => {
-    const { query, namespace = 'public', topK = 5, requiredTerms, useReranking = true } = input;
+    const { query, namespace = '__default__', topK = 5, requiredTerms, useReranking = true } = input;
     
     // Validate environment variables before attempting search
     if (!process.env.PINECONE_API_KEY) {
@@ -105,8 +105,9 @@ export const keywordSearchTool = createTool({
         searchRequest.rerank = {
           model: 'bge-reranker-v2-m3',
           topN: topK,
-          // Try both 'content' and 'excerpt' as rank fields since data might use either
-          rankFields: ['content', 'excerpt'],
+          // Use 'text' field (matches field_map from index creation)
+          // Note: bge-reranker-v2-m3 only supports one rank field
+          rankFields: ['text'],
         };
       }
 
@@ -118,9 +119,10 @@ export const keywordSearchTool = createTool({
         .map((hit) => {
           const fields = (hit.fields || {}) as Record<string, any>;
           
-          // Extract content - try multiple possible field names
+          // Extract content - records use 'text' field (matches field_map from index creation)
           // Note: searchRecords returns data in 'fields', not 'metadata'
           const content = String(
+            fields.text ||
             fields.content || 
             fields.excerpt ||
             ''
@@ -160,6 +162,7 @@ export const keywordSearchTool = createTool({
             id: hit._id,
             score: hit._score,
             content: String(
+              fields.text ||
               fields.content || 
               fields.excerpt ||
               ''
