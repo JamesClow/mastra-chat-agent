@@ -16,19 +16,13 @@ const contextSchema = z.object({
     role: z.string(),
     text: z.string(),
   })).optional(),
-  upcomingEvents: z.array(z.object({
-    title: z.string(),
-    date: z.string().optional(),
-    type: z.string(),
-    content: z.string(),
-  })).optional(),
   geolocation: z.object({
     city: z.string().optional(),
     country: z.string().optional(),
   }).optional(),
 });
 
-const generateSuggestions = createStep({
+export const generateSuggestions = createStep({
   id: 'generate-suggestions',
   description: 'Generates contextual suggestions using the suggestion agent',
   inputSchema: contextSchema,
@@ -40,95 +34,69 @@ const generateSuggestions = createStep({
       throw new Error('Input data not found');
     }
 
-    const insights: string[] = [];
+    // Get current date/time information
+    const now = new Date();
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    
+    const currentDate = now.toISOString().split('T')[0]; // YYYY-MM-DD format
+    const currentDateReadable = `${monthNames[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+    const dayOfWeekName = dayNames[inputData.dayOfWeek];
+    const currentTime = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 
-    // Time-based insights (parent-focused)
-    if (inputData.timeOfDay === 'morning') {
-      insights.push('Parent is likely starting their day - suggest questions about today\'s schedule, drop-off, attendance');
-    } else if (inputData.timeOfDay === 'afternoon') {
-      insights.push('Parent may be asking about pick-up, after-school activities, or homework');
-    } else if (inputData.timeOfDay === 'evening' || inputData.timeOfDay === 'night') {
-      insights.push('Parent is likely planning for tomorrow or asking about upcoming events');
-    }
+    // Format context as a structured message for the agent
+    // The agent will use vectorSearchTool to find fresh information
+    const contextParts: string[] = [
+      `Current Date and Time:`,
+      `- Today's date: ${currentDateReadable} (${currentDate})`,
+      `- Day of week: ${dayOfWeekName}${inputData.isWeekend ? ' (Weekend)' : ' (Weekday)'}`,
+      `- Time of day: ${inputData.timeOfDay} (Current time: ${currentTime})`,
+      `- Season: ${inputData.season || 'not specified'}`,
+      `- Day of year: ${inputData.dayOfYear}`,
+    ];
 
-    // Day-based insights
-    if (inputData.isWeekend) {
-      insights.push('Weekend context - parent may be planning for next week, asking about schedules or events');
-    } else {
-      insights.push('Weekday context - parent may need quick answers about today\'s schedule, attendance, or immediate needs');
-    }
-
-    // Seasonal insights
-    if (inputData.season) {
-      insights.push(`Seasonal context: ${inputData.season}`);
-    }
-
-    // Holiday insights
     if (inputData.isHoliday && inputData.holidayName) {
-      insights.push(`Holiday context: ${inputData.holidayName}`);
+      contextParts.push(`- Today is a holiday: ${inputData.holidayName}`);
     }
 
-    // Event insights
-    if (inputData.upcomingEvents && inputData.upcomingEvents.length > 0) {
-      insights.push(`Found ${inputData.upcomingEvents.length} upcoming events in knowledge base`);
+    contextParts.push(`\nUser Context:`);
+    contextParts.push(`- User type: ${inputData.userType}`);
+
+    if (inputData.geolocation?.city) {
+      contextParts.push(`- Location: ${inputData.geolocation.city}${inputData.geolocation.country ? `, ${inputData.geolocation.country}` : ''}`);
     }
 
-    // Chat history insights
-    if (inputData.chatHistory && inputData.chatHistory.length > 0) {
-      const userMessages = inputData.chatHistory.filter(m => m.role === 'user');
-      if (userMessages.length > 0) {
-        insights.push(`User has ${userMessages.length} previous messages - can infer interests`);
-      }
-    }
-
-    const contextSummary = `
-Context Analysis:
-- Time: ${inputData.timeOfDay} on ${inputData.isWeekend ? 'weekend' : 'weekday'}
-- Day of year: ${inputData.dayOfYear}${inputData.season ? ` (${inputData.season})` : ''}
-${inputData.isHoliday && inputData.holidayName ? `- Holiday: ${inputData.holidayName}` : ''}
-${inputData.upcomingEvents && inputData.upcomingEvents.length > 0 ? `- Upcoming events: ${inputData.upcomingEvents.length} found` : ''}
-${inputData.chatHistory && inputData.chatHistory.length > 0 ? `- Chat history: ${inputData.chatHistory.length} messages` : ''}
-${inputData.geolocation?.city ? `- Location: ${inputData.geolocation.city}` : ''}
-    `.trim();
-
-    // Build a comprehensive prompt for the agent
-    let prompt = `Generate 4-6 contextual suggestions for a user based on the following context:\n\n${contextSummary}\n\nKey Insights:\n${insights.map(i => `- ${i}`).join('\n')}\n\n`;
-
-    // Add upcoming events if available
-    if (inputData.upcomingEvents && inputData.upcomingEvents.length > 0) {
-      prompt += `\nUpcoming Events:\n${inputData.upcomingEvents.slice(0, 5).map(e => `- ${e.title}${e.date ? ` (${e.date})` : ''}`).join('\n')}\n\n`;
-    }
-
-    // Add recent chat history context if available
     if (inputData.chatHistory && inputData.chatHistory.length > 0) {
       const recentMessages = inputData.chatHistory.slice(-5);
-      prompt += `\nRecent Chat History (for context):\n${recentMessages.map(m => `${m.role}: ${m.text.substring(0, 100)}`).join('\n')}\n\n`;
+      contextParts.push(`\nRecent Chat History:`);
+      recentMessages.forEach(m => {
+        contextParts.push(`- ${m.role}: ${m.text.substring(0, 150)}`);
+      });
     }
 
-    prompt += `\nIMPORTANT CONTEXT:
-- The user is a PARENT of a K-12 student
-- They are asking questions about their child/student or school policies
-- Focus suggestions on: student information, school policies, schedules, events, academic info
-
-Requirements:
-- Generate exactly 4-6 suggestions
-- Each suggestion should be a complete, actionable question a parent would ask
-- Focus on: student info, school policies, schedules, events, academic topics
-- Make them specific to the context (time, events, user patterns)
-- Keep each suggestion concise (one sentence, parent-friendly language)
-- Return ONLY the suggestions, one per line, no numbering or bullets
-- Format: Just the text of each suggestion, separated by newlines`;
+    const userMessage = contextParts.join('\n');
 
     // Use the agent to generate suggestions
+    // The agent will autonomously use vectorSearchTool based on its instructions
     const response = await suggestionAgent.generate([
       {
         role: 'user',
-        content: prompt,
+        content: userMessage,
       },
     ]);
 
+    // Debug: Log the full response to see what the agent is returning
+    console.log('[SuggestionWorkflow] Agent response:', {
+      text: response.text,
+      textLength: response.text?.length || 0,
+      hasText: !!response.text,
+      responseKeys: Object.keys(response),
+    });
+
     // Parse the suggestions from the response
     const suggestionsText = response.text || '';
+    console.log('[SuggestionWorkflow] Raw suggestions text:', suggestionsText.substring(0, 500));
+    
     const suggestions = suggestionsText
       .split('\n')
       .map(s => s.trim())
@@ -136,8 +104,14 @@ Requirements:
       .filter(s => s.length > 10 && s.length < 200) // Reasonable length
       .slice(0, 6); // Max 6 suggestions
 
+    console.log('[SuggestionWorkflow] Parsed suggestions:', {
+      count: suggestions.length,
+      suggestions: suggestions,
+    });
+
     // If we don't have enough suggestions, add some fallbacks
     if (suggestions.length < 4) {
+      console.warn(`[SuggestionWorkflow] Only found ${suggestions.length} suggestions, adding fallbacks`);
       const fallbacks = [
         "What's on the school calendar this week?",
         "What are the school's attendance policies?",
@@ -145,6 +119,7 @@ Requirements:
         "Tell me about upcoming school events",
       ];
       suggestions.push(...fallbacks.slice(0, 4 - suggestions.length));
+      console.log('[SuggestionWorkflow] Final suggestions with fallbacks:', suggestions);
     }
 
     return {

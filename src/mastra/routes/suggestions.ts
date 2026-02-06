@@ -1,4 +1,4 @@
-import { suggestionWorkflow } from '../workflows';
+import { generateSuggestions } from '../workflows/suggestion-workflow';
 
 /**
  * Extract the JSON body from whatever request object Mastra/Hono passes us.
@@ -62,7 +62,7 @@ async function extractRequestBody(req: unknown): Promise<unknown> {
  * Custom route handler for suggestion workflow
  * POST /workflows/suggestion-workflow
  */
-export async function handleSuggestionWorkflow(req: unknown): Promise<{ suggestions: string[] }> {
+export async function handleSuggestionWorkflow(req: unknown): Promise<{ suggestions: string[] } | Response> {
   try {
     const bodyValue = await extractRequestBody(req);
 
@@ -99,32 +99,40 @@ export async function handleSuggestionWorkflow(req: unknown): Promise<{ suggesti
     console.log('[SuggestionWorkflow] Context parsed successfully with fields:', Object.keys(contextObj));
 
     // Execute the workflow step directly
-    const workflowStep = (suggestionWorkflow as unknown as Record<string, unknown>).steps;
-    const steps = workflowStep as Array<{ execute: (input: unknown) => Promise<unknown> }> | undefined;
-    
-    if (!steps || !steps[0]) {
-      throw new Error('Workflow step not found');
-    }
-
-    const result = await steps[0].execute({
-      inputData: context as {
-        userId: string;
-        userType: 'guest' | 'regular';
-        timeOfDay: 'morning' | 'afternoon' | 'evening' | 'night';
-        dayOfWeek: number;
-        dayOfYear: number;
-        isWeekend: boolean;
-        season?: 'spring' | 'summer' | 'fall' | 'winter';
-        isHoliday?: boolean;
-        holidayName?: string;
-        chatHistory?: Array<{ role: string; text: string }>;
-        upcomingEvents?: Array<{ title: string; date?: string; type: string; content: string }>;
-        geolocation?: { city?: string; country?: string };
+    // Note: We use type assertion here because the step's execute method expects a full context,
+    // but in practice it only uses inputData, which we provide
+    const result = await (generateSuggestions.execute as (params: { inputData: unknown }) => Promise<{ suggestions: string[] }>)({
+      inputData: {
+        userId: contextObj.userId as string,
+        userType: contextObj.userType as 'guest' | 'regular',
+        timeOfDay: contextObj.timeOfDay as 'morning' | 'afternoon' | 'evening' | 'night',
+        dayOfWeek: contextObj.dayOfWeek as number,
+        dayOfYear: contextObj.dayOfYear as number,
+        isWeekend: contextObj.isWeekend as boolean,
+        season: contextObj.season as 'spring' | 'summer' | 'fall' | 'winter' | undefined,
+        isHoliday: contextObj.isHoliday as boolean | undefined,
+        holidayName: contextObj.holidayName as string | undefined,
+        chatHistory: contextObj.chatHistory as Array<{ role: string; text: string }> | undefined,
+        geolocation: contextObj.geolocation as { city?: string; country?: string } | undefined,
       },
     });
 
     const suggestions = (result as { suggestions?: string[] })?.suggestions || [];
-    return { suggestions };
+    console.log('[SuggestionWorkflow] Route handler returning:', {
+      suggestionsCount: suggestions.length,
+      suggestions: suggestions,
+      resultKeys: Object.keys(result),
+      resultSuggestions: (result as { suggestions?: string[] })?.suggestions?.length,
+    });
+    
+    // Hono will automatically JSON.stringify plain objects
+    // But let's return a Response to be explicit and ensure proper headers
+    return new Response(JSON.stringify({ suggestions }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
   } catch (error) {
     console.error('Error executing suggestion workflow:', error);
     throw error;

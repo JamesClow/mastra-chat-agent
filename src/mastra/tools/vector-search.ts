@@ -23,6 +23,7 @@ export const vectorSearchTool = createTool({
       score: z.number(),
       content: z.string(),
       metadata: z.record(z.unknown()).optional(),
+      fields: z.record(z.unknown()).optional(), // Records API uses 'fields', Vector API uses 'metadata'
     })),
     resultCount: z.number(),
     hasResults: z.boolean().describe('Whether any results were found'),
@@ -70,30 +71,28 @@ export const vectorSearchTool = createTool({
       let hits: Array<{ _id: string; _score: number; fields?: Record<string, any>; metadata?: Record<string, any> }> = [];
       
       try {
-        // Try the new Records API - this works if index has integrated embeddings
+        // Use non-reranked search for better performance
+        // Reranking adds latency and often fails with token limit errors for long documents
+        // The semantic search results are already well-ranked, so reranking provides diminishing returns
         results = await index.namespace(namespace).searchRecords({
           query: {
-            topK: topK * 2,
+            topK: topK, // Use topK directly since we're not reranking
             inputs: {
               text: query,
             },
           },
-          rerank: {
-            model: 'bge-reranker-v2-m3',
-            topN: topK,
-            // Use 'text' field (matches field_map from index creation)
-            // Note: bge-reranker-v2-m3 only supports one rank field
-            rankFields: ['text'],
-          },
+          // No rerank parameter - skip reranking for better performance
         });
         
         hits = results.result.hits || [];
         
+        if (hits.length > 0) {
+          console.log(`[VectorSearch] searchRecords returned ${hits.length} results (non-reranked for performance)`);
+        }
+        
         // If we got results but they don't have content in fields, check metadata
         // This handles the case where data was uploaded as vectors but index supports records
-        if (hits.length > 0) {
-          console.log(`[VectorSearch] searchRecords returned ${hits.length} results`);
-        } else {
+        if (hits.length === 0) {
           console.warn(`[VectorSearch] searchRecords returned 0 results - data might be stored as vectors, not records`);
         }
       } catch (recordsError) {
@@ -151,19 +150,29 @@ export const vectorSearchTool = createTool({
         results: hits.map((hit) => {
           const fields = (hit.fields || {}) as Record<string, any>;
           const metadata = (hit.metadata || {}) as Record<string, any>;
+          
+          // Merge fields and metadata - Records API uses 'fields', Vector API uses 'metadata'
+          // We merge both to ensure all data is available
+          const mergedMetadata = { ...fields, ...metadata };
+          
+          // Extract content - Records API uses 'text' field, Vector API might use different fields
+          const content = String(
+            fields.text ||
+            fields.content || 
+            fields.excerpt ||
+            metadata.excerpt || 
+            metadata.content || 
+            metadata.text ||
+            ''
+          );
+          
           return {
             id: hit._id,
             score: hit._score,
-            content: String(
-              fields.text ||
-              fields.content || 
-              fields.excerpt ||
-              metadata.excerpt || 
-              metadata.content || 
-              metadata.text ||
-              ''
-            ),
-            metadata: { ...fields, ...metadata },
+            content,
+            // Include both metadata and fields for compatibility with chat route
+            metadata: mergedMetadata,
+            fields: fields, // Also include fields separately for compatibility
           };
         }),
         resultCount,
