@@ -1,10 +1,9 @@
-import { z } from 'zod';
-import { createToolCallAccuracyScorerCode } from '@mastra/evals/scorers/prebuilt';
-import { createCompletenessScorer } from '@mastra/evals/scorers/prebuilt';
 import { createScorer } from '@mastra/core/evals';
+import { createCompletenessScorer, createToolCallAccuracyScorerCode } from '@mastra/evals/scorers/prebuilt';
+import { z } from 'zod';
 
 export const toolCallAppropriatenessScorer = createToolCallAccuracyScorerCode({
-  expectedTool: 'weatherTool',
+  expectedTool: 'vectorSearchTool',
   strictMode: false,
 });
 
@@ -42,7 +41,7 @@ export const translationScorer = createScorer({
       explanation: z.string(),
     }),
     createPrompt: ({ results }) => `
-            You are evaluating if a weather assistant correctly handled translation of a non-English location.
+            You are evaluating if an assistant correctly handled translation of a non-English location.
             User text:
             """
             ${results.preprocessStepResult.userText}

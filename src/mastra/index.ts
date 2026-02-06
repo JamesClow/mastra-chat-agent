@@ -6,10 +6,10 @@ import { CloudExporter, DefaultExporter, Observability, SensitiveDataFilter } fr
 import { parentSupportAgent } from './agents';
 import { handleSuggestionWorkflow } from './routes/suggestions';
 import { completenessScorer, toolCallAppropriatenessScorer, translationScorer } from './scorers';
-import { suggestionWorkflow, weatherWorkflow } from './workflows';
+import { suggestionWorkflow } from './workflows';
 
 export const mastra = new Mastra({
-  workflows: { weatherWorkflow, suggestionWorkflow },
+  workflows: { suggestionWorkflow },
   agents: { parentSupportAgent },
   storage: new LibSQLStore({ id: 'parent-support-agent-storage', url: ':memory:' }),
   scorers: {
