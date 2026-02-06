@@ -1,81 +1,84 @@
 import { suggestionWorkflow } from '../workflows';
 
 /**
- * Custom route handler for suggestion workflow
- * This can be called directly or via HTTP if MASTRA exposes workflows
- * POST /workflows/suggestion-workflow
+ * Extract the JSON body from whatever request object Mastra/Hono passes us.
+ * 
+ * Mastra uses Hono under the hood, so the `req` parameter is actually a Hono Context (c).
+ * - c.req.json() → parsed JSON body (this is what we need)
+ * - c.body → method to CREATE a Response (NOT the request body!)
+ * - c.req.raw → the raw Fetch Request
  */
-export async function handleSuggestionWorkflow(req: { body: unknown } | Request): Promise<{ suggestions: string[] }> {
-  try {
-    // Extract context from request body
-    // Mastra might pass a Request object or a custom request object
-    let bodyValue: unknown;
-    
-    // Check if it's a standard Request object
-    if (req instanceof Request) {
+async function extractRequestBody(req: unknown): Promise<unknown> {
+  const r = req as Record<string, unknown>;
+
+  // 1. Hono Context: req.req.json() — this is the most likely case in Mastra
+  if (r.req && typeof r.req === 'object') {
+    const honoReq = r.req as Record<string, unknown>;
+    if (typeof honoReq.json === 'function') {
       try {
-        bodyValue = await req.json();
-      } catch {
-        // If JSON parsing fails, try text
-        const text = await req.text();
-        try {
-          bodyValue = JSON.parse(text);
-        } catch {
-          throw new Error('Unable to parse request body as JSON');
-        }
-      }
-    } else {
-      // It's a custom request object
-      const customReq = req as { body: unknown; [key: string]: unknown };
-      bodyValue = customReq.body;
-      
-      // If body is a function, call it to get the actual value
-      if (typeof bodyValue === 'function') {
-        try {
-          const result = bodyValue();
-          // If the result is a promise, await it
-          if (result && typeof (result as Promise<unknown>).then === 'function') {
-            bodyValue = await (result as Promise<unknown>);
-          } else {
-            bodyValue = result;
-          }
-        } catch (error) {
-          console.error('[SuggestionWorkflow] Error calling body function:', error);
-          // Try to get body from request directly if available
-          if ('json' in customReq && typeof customReq.json === 'function') {
-            try {
-              bodyValue = await (customReq.json as () => Promise<unknown>)();
-            } catch {
-              throw new Error('Unable to extract request body');
-            }
-          } else {
-            throw new Error('Unable to extract request body - body is a function that failed to execute');
-          }
-        }
-      }
-      
-      // If body is a promise, await it
-      if (bodyValue && typeof (bodyValue as Promise<unknown>).then === 'function') {
-        bodyValue = await (bodyValue as Promise<unknown>);
+        return await (honoReq.json as () => Promise<unknown>)();
+      } catch (error) {
+        console.warn('[SuggestionWorkflow] Failed to parse via req.req.json():', error);
       }
     }
-    
+    // Also try req.req.raw (the raw Fetch Request)
+    if (honoReq.raw && honoReq.raw instanceof Request) {
+      try {
+        return await honoReq.raw.json();
+      } catch (error) {
+        console.warn('[SuggestionWorkflow] Failed to parse via req.req.raw.json():', error);
+      }
+    }
+  }
+
+  // 2. Standard Fetch Request: req.json()
+  if (req instanceof Request) {
+    try {
+      return await req.json();
+    } catch {
+      const text = await req.text();
+      return JSON.parse(text);
+    }
+  }
+
+  // 3. Plain object with already-parsed body (e.g. { body: { userId: '...' } })
+  if (r.body && typeof r.body === 'object' && typeof r.body !== 'function') {
+    return r.body;
+  }
+
+  // 4. req.json() method (some frameworks expose this)
+  if (typeof r.json === 'function' && !('req' in r)) {
+    try {
+      return await (r.json as () => Promise<unknown>)();
+    } catch (error) {
+      console.warn('[SuggestionWorkflow] Failed to parse via req.json():', error);
+    }
+  }
+
+  throw new Error('Unable to extract request body from the provided request object');
+}
+
+/**
+ * Custom route handler for suggestion workflow
+ * POST /workflows/suggestion-workflow
+ */
+export async function handleSuggestionWorkflow(req: unknown): Promise<{ suggestions: string[] }> {
+  try {
+    const bodyValue = await extractRequestBody(req);
+
     // The request body might be the context directly, or wrapped in a body property
     let context = bodyValue;
-    
+
     // If body is an object with a 'body' property but doesn't have required fields, unwrap it
-    if (context && typeof context === 'object' && 'body' in context && !('userId' in context)) {
+    if (context && typeof context === 'object' && 'body' in (context as Record<string, unknown>) && !('userId' in (context as Record<string, unknown>))) {
       context = (context as { body: unknown }).body;
     }
 
     // Validate context structure
     if (!context || typeof context !== 'object') {
-      console.error('[SuggestionWorkflow] Invalid context provided:', {
+      console.error('[SuggestionWorkflow] Invalid context after parsing:', {
         context,
         type: typeof context,
-        bodyValue,
-        bodyType: typeof req.body,
-        isFunction: typeof req.body === 'function',
       });
       throw new Error('Invalid context provided. Expected an object with userId, userType, timeOfDay, etc.');
     }
@@ -84,24 +87,26 @@ export async function handleSuggestionWorkflow(req: { body: unknown } | Request)
     const contextObj = context as Record<string, unknown>;
     const requiredFields = ['userId', 'userType', 'timeOfDay', 'dayOfWeek', 'dayOfYear', 'isWeekend'];
     const missingFields = requiredFields.filter(field => !(field in contextObj));
-    
+
     if (missingFields.length > 0) {
       console.error('[SuggestionWorkflow] Missing required fields:', {
         missingFields,
         providedFields: Object.keys(contextObj),
-        context: contextObj,
       });
       throw new Error(`Invalid context provided. Missing required fields: ${missingFields.join(', ')}. Provided fields: ${Object.keys(contextObj).join(', ')}`);
     }
 
-    // Execute the workflow step directly since we can't easily access the full Mastra execution context
-    // We'll call the step's execute method with the input data
-    const workflowStep = (suggestionWorkflow as any).steps?.[0];
-    if (!workflowStep) {
+    console.log('[SuggestionWorkflow] Context parsed successfully with fields:', Object.keys(contextObj));
+
+    // Execute the workflow step directly
+    const workflowStep = (suggestionWorkflow as unknown as Record<string, unknown>).steps;
+    const steps = workflowStep as Array<{ execute: (input: unknown) => Promise<unknown> }> | undefined;
+    
+    if (!steps || !steps[0]) {
       throw new Error('Workflow step not found');
     }
-    
-    const result = await workflowStep.execute({
+
+    const result = await steps[0].execute({
       inputData: context as {
         userId: string;
         userType: 'guest' | 'regular';
@@ -118,30 +123,10 @@ export async function handleSuggestionWorkflow(req: { body: unknown } | Request)
       },
     });
 
-    // Return suggestions
-    return { suggestions: result?.suggestions || [] };
+    const suggestions = (result as { suggestions?: string[] })?.suggestions || [];
+    return { suggestions };
   } catch (error) {
     console.error('Error executing suggestion workflow:', error);
-    // Re-throw with more context if it's a validation error
-    if (error instanceof Error && (error.message.includes('Invalid context') || error.message.includes('Missing required'))) {
-      // Try to stringify the request, but handle if body is a function
-      let bodyStr = 'Unable to stringify request body';
-      try {
-        if (req instanceof Request) {
-          bodyStr = 'Request object (body already parsed)';
-        } else {
-          const bodyToStr = (req as { body: unknown }).body;
-          if (typeof bodyToStr === 'function') {
-            bodyStr = 'Request body is a function';
-          } else {
-            bodyStr = JSON.stringify(bodyToStr, null, 2);
-          }
-        }
-      } catch {
-        bodyStr = 'Error stringifying request body';
-      }
-      throw new Error(`${error.message}. Request info: ${bodyStr}`);
-    }
     throw error;
   }
 }
