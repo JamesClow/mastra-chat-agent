@@ -83,6 +83,14 @@ export function createChatRouteWithAutoSearch(agentId: string) {
           .filter((msg) => msg.role === 'user')
           .pop();
 
+        // Store auto-search results for SSE injection
+        let autoSearchResults: Array<{
+          id: string;
+          score: number;
+          content: string;
+          metadata?: Record<string, unknown>;
+        }> | null = null;
+
         // Perform automatic vector search if we have a user message
         if (lastUserMessage) {
           const messageText = extractMessageText(lastUserMessage);
@@ -105,6 +113,9 @@ export function createChatRouteWithAutoSearch(agentId: string) {
                 isNoMatch: searchResult.isNoMatch,
               };
               body.data.autoSearchPerformed = true;
+              
+              // Store full results for SSE injection
+              autoSearchResults = searchResult.results;
 
               console.log(`[ChatRoute] Auto search completed: ${searchResult.resultCount} results found`);
             } catch (error) {
@@ -121,13 +132,79 @@ export function createChatRouteWithAutoSearch(agentId: string) {
         req.body = body;
 
         // Delegate to the base chatRoute handler
+        let response: Response;
         if (baseChatRoute && typeof baseChatRoute === 'object' && 'handler' in baseChatRoute && typeof baseChatRoute.handler === 'function') {
-          return await baseChatRoute.handler(req);
+          response = await baseChatRoute.handler(req);
+        } else if (typeof baseChatRoute === 'function') {
+          response = await baseChatRoute(req);
+        } else {
+          throw new Error('Unable to access chatRoute handler. Please check Mastra chatRoute implementation.');
         }
-        if (typeof baseChatRoute === 'function') {
-          return await baseChatRoute(req);
+
+        // If we have auto-search results, inject them as an SSE event at the start of the stream
+        if (autoSearchResults && autoSearchResults.length > 0 && response.body) {
+          const originalStream = response.body;
+          const reader = originalStream.getReader();
+          const decoder = new TextDecoder();
+          const encoder = new TextEncoder();
+          
+          // Normalize auto-search results to SourceInfo format
+          const normalizedSources = autoSearchResults.map((result) => {
+            const metadata = result.metadata || {};
+            const title = (metadata.title as string) || (metadata.name as string) || 'Untitled Document';
+            const filePath = (metadata.file_path as string | null) || (metadata.filePath as string | null) || null;
+            const url = (metadata.url as string | null) || null;
+            const description = (metadata.description as string | null) || (metadata.summary as string | null) || null;
+            
+            return {
+              id: result.id,
+              title,
+              score: result.score,
+              content: result.content,
+              filePath,
+              url,
+              description,
+              metadata: metadata as Record<string, unknown>,
+            };
+          });
+
+          // Create SSE event for auto-rag-sources
+          const autoRagSourcesEvent = `data: ${JSON.stringify({
+            type: 'auto-rag-sources',
+            sources: normalizedSources,
+          })}\n\n`;
+
+          // Create a new stream that prepends the auto-rag-sources event
+          const stream = new ReadableStream({
+            start(controller) {
+              // First, enqueue the auto-rag-sources event
+              controller.enqueue(encoder.encode(autoRagSourcesEvent));
+              
+              // Then, pipe the original stream
+              function pump(): Promise<void> {
+                return reader.read().then(({ done, value }) => {
+                  if (done) {
+                    controller.close();
+                    return;
+                  }
+                  controller.enqueue(value);
+                  return pump();
+                });
+              }
+              
+              return pump();
+            },
+          });
+
+          // Return a new Response with the modified stream
+          return new Response(stream, {
+            headers: response.headers,
+            status: response.status,
+            statusText: response.statusText,
+          });
         }
-        throw new Error('Unable to access chatRoute handler. Please check Mastra chatRoute implementation.');
+
+        return response;
       } catch (error) {
         console.error('[ChatRoute] Error in chat route with auto search:', error);
         throw error;
