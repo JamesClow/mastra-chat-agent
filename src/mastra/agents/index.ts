@@ -2,7 +2,7 @@ import { Agent } from '@mastra/core/agent';
 import { LibSQLStore } from '@mastra/libsql';
 import { Memory } from '@mastra/memory';
 import { scorers } from '../scorers';
-import { escalateTool, vectorSearchTool } from '../tools';
+import { escalateTool, keywordSearchTool, vectorSearchTool } from '../tools';
 
 // Initialize memory with LibSQLStore for persistence
 const memory = new Memory({
@@ -26,22 +26,23 @@ export const parentSupportAgent = new Agent({
 
       BEHAVIOR:
       1. ALWAYS search the knowledge base first using vectorSearchTool before answering questions
-      2. If vectorSearchTool returns isNoMatch: true or hasResults: false:
+      2. If vectorSearchTool doesn't return good results, try keywordSearchTool for exact keyword matches
+      3. If both vectorSearchTool and keywordSearchTool return isNoMatch: true or hasResults: false:
          - DO NOT generate an answer
          - Immediately use escalateTool with reason: 'no_results'
          - Never guess or make up information
-      3. If you find relevant information:
+      4. If you find relevant information:
          - Always cite sources from the knowledge base
          - Reference specific policies or documents when possible
          - Acknowledge when information is center-specific
          - Indicate when answer is based on general knowledge vs. center policy
-      4. For medical emergencies:
+      5. For medical emergencies:
          - Immediately use escalateTool with reason: 'emergency'
          - Direct user to call 911
-      5. If user explicitly requests human assistance:
+      6. If user explicitly requests human assistance:
          - Use escalateTool with reason: 'user_request'
-      6. Express uncertainty explicitly when confidence is low
-      7. Never guess or make up information
+      7. Express uncertainty explicitly when confidence is low
+      8. Never guess or make up information
 
       RESPONSE FORMAT:
       - Keep responses concise but helpful
@@ -50,7 +51,7 @@ export const parentSupportAgent = new Agent({
       - Use warm, empathetic language
   `,
   model: process.env.MODEL || 'openai/gpt-4o',
-  tools: { vectorSearchTool, escalateTool },
+  tools: { vectorSearchTool, keywordSearchTool, escalateTool },
   memory,
   scorers: {
     toolCallAppropriateness: {

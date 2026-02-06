@@ -1,9 +1,9 @@
-import { chatRoute } from '@mastra/ai-sdk';
 import { Mastra } from '@mastra/core/mastra';
 import { LibSQLStore } from '@mastra/libsql';
 import { PinoLogger } from '@mastra/loggers';
 import { CloudExporter, DefaultExporter, Observability, SensitiveDataFilter } from '@mastra/observability';
 import { parentSupportAgent } from './agents';
+import { createChatRouteWithAutoSearch } from './routes/chat-with-auto-search';
 import { handleSuggestionWorkflow } from './routes/suggestions';
 import { completenessScorer, toolCallAppropriatenessScorer, translationScorer } from './scorers';
 import { suggestionWorkflow } from './workflows';
@@ -37,16 +37,14 @@ export const mastra = new Mastra({
   }),
   server: {
     apiRoutes: [
-      chatRoute({
-        path: '/chat',
-        agent: 'parentSupportAgent',
-      }),
+      // Custom chat route with automatic vector search
+      createChatRouteWithAutoSearch('parentSupportAgent'),
       // Custom route for suggestion workflow
       {
         path: '/workflows/suggestion-workflow',
         method: 'POST',
         handler: async (req: { body: unknown }) => {
-          return await handleSuggestionWorkflow(req.body);
+          return await handleSuggestionWorkflow(req);
         },
       },
     ],
