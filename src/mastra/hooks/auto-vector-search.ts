@@ -54,21 +54,15 @@ export async function performAutoVectorSearch(
   }
 
   try {
-    // Search with reranking for best results (best practice)
-    // Try searchRecords - works if index has integrated embeddings
+    // Search without reranking to avoid token limit errors
+    // bge-reranker-v2-m3 has a 1024 token limit per query+document pair
+    // which is frequently exceeded by longer documents
     const results = await index.namespace(namespace).searchRecords({
       query: {
-        topK: topK * 2, // Get more candidates for reranking
+        topK,
         inputs: {
           text: userMessage,
         },
-      },
-      rerank: {
-        model: 'bge-reranker-v2-m3',
-        topN: topK,
-        // Use 'text' field (matches field_map from index creation)
-        // Note: bge-reranker-v2-m3 only supports one rank field
-        rankFields: ['text'],
       },
     });
 

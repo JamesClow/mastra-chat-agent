@@ -5,11 +5,12 @@ import { CloudExporter, DefaultExporter, Observability, SensitiveDataFilter } fr
 import { parentSupportAgent } from './agents';
 import { createChatRouteWithAutoSearch } from './routes/chat-with-auto-search';
 import { handleSuggestionWorkflow } from './routes/suggestions';
+import { handleWorkflowResume } from './routes/workflow-resume';
 import { completenessScorer, toolCallAppropriatenessScorer, translationScorer } from './scorers';
-import { suggestionWorkflow } from './workflows';
+import { multipleChoiceWorkflow, requestEmailWorkflow, suggestionWorkflow } from './workflows';
 
 export const mastra = new Mastra({
-  workflows: { suggestionWorkflow },
+  workflows: { suggestionWorkflow, requestEmailWorkflow, multipleChoiceWorkflow },
   agents: { parentSupportAgent },
   storage: new LibSQLStore({ id: 'parent-support-agent-storage', url: ':memory:' }),
   scorers: {
@@ -45,6 +46,14 @@ export const mastra = new Mastra({
         method: 'POST',
         handler: async (req: { body: unknown }) => {
           return await handleSuggestionWorkflow(req);
+        },
+      },
+      // Workflow resume route
+      {
+        path: '/workflows/resume',
+        method: 'POST',
+        handler: async (req: { body: unknown }) => {
+          return await handleWorkflowResume(req);
         },
       },
     ],

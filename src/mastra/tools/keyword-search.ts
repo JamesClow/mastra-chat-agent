@@ -11,13 +11,13 @@ import { getPineconeIndex } from '../../pinecone/client';
  */
 export const keywordSearchTool = createTool({
   id: 'keyword-search',
-  description: 'Search the knowledge base using keyword/lexical search. Use this when you need to find exact keyword matches, specific terms, or when semantic search doesn\'t return the desired results. This is particularly useful for finding specific policy names, document titles, or exact phrases.',
+  description: 'Search the knowledge base using semantic search with a keyword-focused query. Use this as a fallback when vectorSearchTool doesn\'t return the desired results. This performs semantic search (not true keyword filtering) but can be useful for finding specific terms or phrases.',
   inputSchema: z.object({
     query: z.string().describe('The search query with keywords to find relevant information'),
     namespace: z.string().optional().describe('Namespace to search in (e.g., "__default__", "public", "restricted", "user_123"). Defaults to "__default__"'),
     topK: z.number().optional().default(5).describe('Number of results to return (default: 5)'),
-    requiredTerms: z.array(z.string()).optional().describe('Optional list of terms that must be present in the results'),
-    useReranking: z.boolean().optional().default(true).describe('Whether to use reranking for better results (default: true)'),
+    requiredTerms: z.array(z.string()).optional().describe('Optional list of terms to emphasize in the query (not used for filtering)'),
+    useReranking: z.boolean().optional().default(true).describe('Whether to use reranking for better results (default: true, but currently disabled due to token limits)'),
   }),
   outputSchema: z.object({
     context: z.string().describe('Formatted context from search results for use in responses'),
@@ -66,50 +66,20 @@ export const keywordSearchTool = createTool({
     }
 
     try {
-      // Build query object for lexical search
-      // Use type assertion to handle matchTerms type mismatch with Pinecone SDK
-      const queryObj: {
-        topK: number;
-        inputs: { text: string };
-        matchTerms?: unknown;
-      } = {
-        topK: useReranking ? topK * 2 : topK, // Get more candidates if using reranking
-        inputs: {
-          text: query,
+      // Build query object for semantic search
+      // Note: match_terms is only supported for 'pinecone-sparse-english-v0' model
+      // Since most indexes use integrated embeddings, we rely on semantic search via query text
+      const searchRequest = {
+        query: {
+          topK,
+          inputs: {
+            text: query,
+          },
         },
       };
 
-      // Add required terms if specified
-      if (requiredTerms && requiredTerms.length > 0) {
-        queryObj.matchTerms = requiredTerms;
-      }
-
-      // Build search request - use 'as any' to bypass TypeScript's strict typing for matchTerms
-      const searchRequest: {
-        query: {
-          topK: number;
-          inputs: { text: string };
-          matchTerms?: unknown;
-        };
-        rerank?: {
-          model: string;
-          topN: number;
-          rankFields: string[];
-        };
-      } = {
-        query: queryObj,
-      };
-
-      // Add reranking if requested
-      if (useReranking) {
-        searchRequest.rerank = {
-          model: 'bge-reranker-v2-m3',
-          topN: topK,
-          // Use 'text' field (matches field_map from index creation)
-          // Note: bge-reranker-v2-m3 only supports one rank field
-          rankFields: ['text'],
-        };
-      }
+      // Skip reranking - bge-reranker-v2-m3 has a 1024 token limit per
+      // query+document pair which is frequently exceeded by longer documents
 
       const results = await index.namespace(namespace).searchRecords(searchRequest as any);
 
