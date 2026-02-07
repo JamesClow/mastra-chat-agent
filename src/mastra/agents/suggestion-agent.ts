@@ -150,7 +150,8 @@ export const suggestionAgent = new Agent({
     - "Tell me about upcoming school holidays"
     - "What after-school programs are available?"
   `,
-  model: process.env.MODEL || 'openai/gpt-4.1-mini',
+  // Hardcoded to gpt-4.1-mini to prevent deployment overrides
+  model: 'openai/gpt-4.1-mini',
   tools: { vectorSearchTool },
   memory,
 });

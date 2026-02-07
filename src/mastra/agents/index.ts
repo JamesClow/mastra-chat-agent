@@ -81,7 +81,8 @@ export const parentSupportAgent: AgentType = new Agent({
       - Include source citations when referencing policies
       - Use warm, empathetic language
   `,
-  model: process.env.MODEL || 'openai/gpt-4.1-mini',
+  // Hardcoded to gpt-4.1-mini to prevent deployment overrides
+  model: 'openai/gpt-4.1-mini',
   tools: { vectorSearchTool, keywordSearchTool, escalateTool, multipleChoiceTool },
   memory,
   scorers: {
