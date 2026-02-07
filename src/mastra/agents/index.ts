@@ -82,7 +82,7 @@ export const parentSupportAgent: AgentType = new Agent({
       - Include source citations when referencing policies
       - Use warm, empathetic language
   `,
-  model: process.env.MODEL || 'openai/gpt-4o',
+  model: process.env.MODEL || 'openai/gpt-4.1-mini',
   tools: { vectorSearchTool, keywordSearchTool, escalateTool, requestEmailTool, multipleChoiceTool },
   memory,
   scorers: {
